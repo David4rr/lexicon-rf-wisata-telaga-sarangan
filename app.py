@@ -280,9 +280,15 @@ def main():
         st.divider()
         st.subheader("Spesifikasi Model & Teknis")
         st.info(
-            "- **Algoritma:** Random Forest + SMOTE (*handling imbalanced data*)\n\n"
-            "- **Ekstraksi Fitur:** TF-IDF, Lexicon Scoring, Text Statistics\n\n"
-            "- **Pemrosesan Teks:** Cleansing, Normalisasi Slang, Stemming (Sastrawi)"
+            "**Metode dan Fitur:**\n"
+            "- **Model:** Random Forest + SMOTE\n"
+            "- **Fitur:** TF-IDF + Lexicon + Statistik Teks\n"
+            "- **NLP:** Cleansing, Normalisasi Slang, Stemming\n\n"
+            "**Alasan Pemilihan Model:**\n"
+            "- **Data Tidak Seimbang:** Ulasan negatif sangat minim (93 berbanding 1.333 netral dan 1.436 positif). SMOTE menyeimbangkan kelas data latih.\n"
+            "- **SMOTE Terbaik:** Dibandingkan ADASYN, ROS, dan RUS, SMOTE menghasilkan F1-Macro (0.774) dan F1-Negatif (0.500) tertinggi.\n"
+            "- **RF Tangguh:** Optimal dalam mengolah fitur campuran serta toleran terhadap bahasa slang.\n"
+            "- **Dampak Lexicon:** F1-Macro meningkat 11.7% (dari 0.692 menjadi 0.773) dan F1-Negatif meningkat 69.6% (dari 0.286 menjadi 0.485)."
         )
 
     # -- Load model --
