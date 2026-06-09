@@ -278,11 +278,11 @@ def main():
                 st.session_state["review_input"] = ex
                 
         st.divider()
-        st.subheader("Spesifikasi Teknis")
-        st.caption(
-            "Algoritma: Random Forest Classifier\n\n"
-            "Ekstraksi Fitur: TF-IDF, Text Statistics, Lexicon Scoring\n\n"
-            "Pemrosesan Teks: Sastrawi Stemmer"
+        st.subheader("Spesifikasi Model & Teknis")
+        st.info(
+            "- **Algoritma:** Random Forest + SMOTE (*handling imbalanced data*)\n\n"
+            "- **Ekstraksi Fitur:** TF-IDF, Lexicon Scoring, Text Statistics\n\n"
+            "- **Pemrosesan Teks:** Cleansing, Normalisasi Slang, Stemming (Sastrawi)"
         )
 
     # -- Load model --
