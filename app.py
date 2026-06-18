@@ -10,6 +10,7 @@ import re
 import string
 import os
 import numpy as np
+from collections import Counter
 
 from sklearn.base import BaseEstimator, TransformerMixin
 from Sastrawi.Stemmer.StemmerFactory import StemmerFactory
@@ -18,45 +19,6 @@ from Sastrawi.StopWordRemover.StopWordRemoverFactory import StopWordRemoverFacto
 # ── Configuration ────────────────────────────────────────────────────
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "model.pkl")
 LABEL_MAP = {0: "Negatif", 1: "Netral", 2: "Positif"}
-USE_STEMMING = True
-
-NEGATION_PREFIXES = (
-    'tidak', 'tak', 'bukan', 'jangan', 'kurang', 'belum', 'gak', 'ga', 'nggak'
-)
-
-POS_WORDS = {
-    'bagus','indah','nyaman','sejuk','keren','mantap','asyik','recommended',
-    'bersih','suka','ramah','seru','fresh','adem','luar',
-    'cantik','menawan','menarik','asri','natural','alami','jernih',
-    'puas','senang','bahagia','tenang','damai','amazing','beautiful',
-    'lezat','enak','murah','terjangkau','worth','worthit',
-    'josss','joss','top','hebat','luar biasa','istimewa','eksotis',
-    'betah','cocok','pas','oke','ok','nice','good','great',
-    'romantis','menyenangkan','dingin','seger','segar',
-    'favorit','best','sempurna','memuaskan','apresiasi',
-}
-NEG_WORDS = {
-    'mahal','macet','kotor','kecewa','parah','buruk','ruwet','bosan',
-    'bau','jelek','kurang','jauh','antri','penuh','semrawut','tidak',
-    'kumuh','jorok','rusak','bahaya','berbahaya','licin','sempit',
-    'mengecewakan','payah','sampah','banjir','longsor','sepi',
-    'tipu','penipu','pungli','bohong','nakal','kasar',
-    'panas','gerah','becek','berlubang','ancur','hancur',
-    'lambat','lama','susah','sulit','ribet','repot',
-    'mengantri','antre','malas','males','capek','capai',
-    'overpriced','kemahalan','murahan',
-    'ngeri','takut','seram','horor','gelap','gersang',
-}
-NEU_WORDS = {
-    'cukup','standar','lumayan','biasa','ramai','weekend','jalan','parkir',
-    'tiket','harga','naik','turun','telaga','sarangan','wisata','pengunjung',
-    'tempat','lokasi','area','kawasan','hotel','villa','penginapan',
-    'restoran','warung','kuda','speedboat','boat','perahu',
-    'gunung','danau','air','pohon','hutan','alam',
-    'libur','liburan','jalan-jalan','piknik','rekreasi',
-    'keluarga','anak','teman','rombongan','foto','selfie',
-    'masuk','keluar','buka','tutup','jam',
-}
 
 SLANG_MAP = {
     'gak':'tidak','ga':'tidak','nggak':'tidak','gk':'tidak',
@@ -107,85 +69,54 @@ class TextFeatureExtractor(BaseEstimator, TransformerMixin):
             lambda x: sum(1 for c in str(x) if c in string.punctuation))
         return features
 
+class RatioStrategy:
+    """Fungsi custom untuk mengatur porsi penciptaan data sintetis pada SMOTE."""
+    def __init__(self, ratio):
+        self.ratio = ratio
+        
+    def __call__(self, y):
+        counts = Counter(y)
+        maj_count = max(counts.values())
+        target = int(np.floor(maj_count * self.ratio))
+        return {k: max(v, target) for k, v in counts.items()}
+        
+    def __repr__(self):
+        return f"RatioStrategy({self.ratio})"
 
-class LexiconFeatureExtractor(BaseEstimator, TransformerMixin):
-    """Extract lexicon-based sentiment features from cleaned text."""
-    def __init__(self, pos_words=None, neg_words=None, neu_words=None):
-        self.pos_words = pos_words
-        self.neg_words = neg_words
-        self.neu_words = neu_words
-
-    def fit(self, X, y=None):
-        return self
-
-    def transform(self, X):
-        pw = self.pos_words if self.pos_words is not None else POS_WORDS
-        nw = self.neg_words if self.neg_words is not None else NEG_WORDS
-        nuw = self.neu_words if self.neu_words is not None else NEU_WORDS
-        rows = []
-        for text in X.astype(str):
-            tokens = text.split()
-            total = max(len(tokens), 1)
-            pos_c = neg_c = neu_c = 0
-            for w in tokens:
-                if '_' in w and w.split('_', 1)[0] in NEGATION_PREFIXES:
-                    neg_c += 1
-                    continue
-                if w in pw:
-                    pos_c += 1
-                if w in nw:
-                    neg_c += 1
-                if w in nuw:
-                    neu_c += 1
-            rows.append({
-                'lex_pos_count': pos_c, 'lex_neg_count': neg_c,
-                'lex_neu_count': neu_c,
-                'lex_pos_ratio': pos_c / total,
-                'lex_neg_ratio': neg_c / total,
-                'lex_neu_ratio': neu_c / total,
-                'lex_polarity': pos_c - neg_c,
-                'lex_subjectivity': pos_c + neg_c,
-                'lex_total_hits': pos_c + neg_c + neu_c,
-                'lex_hit_ratio': (pos_c + neg_c + neu_c) / total,
-            })
-        return pd.DataFrame(rows)
 
 
 # ── NLP tools ────────────────────────────────────────────────────────
 @st.cache_resource
 def _load_nlp():
     stemmer = StemmerFactory().create_stemmer()
-    sw = set(StopWordRemoverFactory().get_stop_words()) - set(NEGATION_PREFIXES)
+    sw = set(StopWordRemoverFactory().get_stop_words())
     return stemmer, sw
-
 
 def preprocess_text(text: str) -> str:
     stemmer, stopwords = _load_nlp()
     text = str(text).lower()
-    text = re.sub(
-        r'\b(tidak|tak|bukan|jangan|kurang|belum|gak|ga|nggak)\s+(\w+)',
-        r'\1_\2', text)
     text = re.sub(r'http\S+|www\S+|https\S+', '', text)
     text = re.sub(r'@[\w]+', '', text)
     text = re.sub(r'#[\w]+', '', text)
     text = re.sub(r'\d+', '', text)
-    p = string.punctuation.replace('_', '')
+    p = string.punctuation
     text = text.translate(str.maketrans('', '', p))
     text = re.sub(r'(.)\1{2,}', r'\1\1', text)
     text = re.sub(r'\s+', ' ', text).strip()
+    
+    # Normalisasi kata (slang)
     words = [SLANG_MAP.get(w, w) for w in text.split()]
-    words = [w for w in words if w not in stopwords and len(w) > 1]
-    if USE_STEMMING:
-        neg = set(NEGATION_PREFIXES)
-        processed = []
-        for w in words:
-            if '_' in w:
-                pref, suf = w.split('_', 1)
-                if pref in neg and suf:
-                    processed.append(f"{pref}_{stemmer.stem(suf)}")
-                    continue
-            processed.append(stemmer.stem(w))
-        words = processed
+    
+    # Pisahkan kembali jika ada slang map yang menghasilkan dua kata (misal 'tidak apa')
+    normalized_words = []
+    for w in words:
+        normalized_words.extend(w.split())
+        
+    # Hapus stopwords (tanpa menghiraukan negasi, sesuai dataset)
+    words = [w for w in normalized_words if w not in stopwords and len(w) > 1]
+    
+    # TIDAK MENGGUNAKAN STEMMING (Sesuai dengan dataset ulasan_clean)
+    
     cleaned = ' '.join(words).strip()
     return cleaned if cleaned else 'kosong'
 
@@ -208,8 +139,9 @@ def load_model():
 
 def predict(text: str, model):
     clean = preprocess_text(text)
-    df = pd.DataFrame({'raw': [text], 'clean': [clean]})
-    idx = model.predict(df)[0]
+    # The pipeline expects an iterable of strings (like a list), not a DataFrame.
+    # Passing a DataFrame causes TfidfVectorizer to vectorize the column names!
+    idx = model.predict([clean])[0]
     return LABEL_MAP[idx], clean
 
 
@@ -268,9 +200,10 @@ def main():
         examples = [
             "Telaga sarangan indah banget, udaranya sejuk dan pemandangan menakjubkan",
             "Macet parah, tukang parkir nembak harga mahal banget, kecewa",
-            "Biasa aja sih tempatnya, standar wisata air pada umumnya",
+            "berjalanlah sebentar danau menit berjalan mengelilinginya",
             "Tempatnya bersih dan nyaman, cocok buat liburan keluarga",
             "Jorok banget toiletnya, sampah dimana-mana, sangat mengecewakan",
+            "terpenting kondisi kendaraan tenaga melewati jalanan terjal",
         ]
         
         for i, ex in enumerate(examples):
@@ -282,13 +215,12 @@ def main():
         st.info(
             "**Metode dan Fitur:**\n"
             "- **Model:** Random Forest + SMOTE\n"
-            "- **Fitur:** TF-IDF + Lexicon + Statistik Teks\n"
-            "- **NLP:** Cleansing, Normalisasi Slang, Stemming\n\n"
+            "- **Fitur:** TF-IDF + Statistik Teks\n"
+            "- **NLP:** Cleansing, Normalisasi Slang, Stopword Removal (tanpa Stemming)\n\n"
             "**Alasan Pemilihan Model:**\n"
             "- **Data Tidak Seimbang:** Ulasan negatif sangat minim (93 berbanding 1.333 netral dan 1.436 positif). SMOTE menyeimbangkan kelas data latih.\n"
             "- **SMOTE Terbaik:** Dibandingkan ADASYN, ROS, dan RUS, SMOTE menghasilkan F1-Macro (0.774) dan F1-Negatif (0.500) tertinggi.\n"
-            "- **RF Tangguh:** Optimal dalam mengolah fitur campuran serta toleran terhadap bahasa slang.\n"
-            "- **Dampak Lexicon:** F1-Macro meningkat 11.7% (dari 0.692 menjadi 0.773) dan F1-Negatif meningkat 69.6% (dari 0.286 menjadi 0.485)."
+            "- **RF Tangguh:** Optimal dalam mengolah fitur campuran serta toleran terhadap bahasa slang."
         )
 
     # -- Load model --
